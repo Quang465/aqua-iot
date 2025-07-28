@@ -1,20 +1,70 @@
 <!DOCTYPE html>
-<html>
+<html lang="vi">
 <head>
-  <title>Supabase Auth</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Aqua-IoT Login</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: linear-gradient(to right, #1e3c72, #2a5298);
+      color: #fff;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .container {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+      width: 100%;
+      max-width: 350px;
+      text-align: center;
+    }
+    h1 {
+      margin-bottom: 20px;
+      font-weight: 400;
+    }
+    input {
+      width: 100%;
+      padding: 10px;
+      margin: 8px 0;
+      border: none;
+      border-radius: 6px;
+      font-size: 16px;
+    }
+    button {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      background-color: #00c9a7;
+      border: none;
+      border-radius: 6px;
+      font-size: 16px;
+      color: white;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+    button:hover {
+      background-color: #00b89c;
+    }
+  </style>
 </head>
 <body>
-  <h1>Supabase Auth Demo</h1>
-
-  <input type="email" id="email" placeholder="Email"><br>
-  <input type="password" id="password" placeholder="Password"><br>
-  <button onclick="register()">Đăng ký</button>
-  <button onclick="login()">Đăng nhập</button>
-  <button onclick="logout()">Đăng xuất</button>
+  <div class="container">
+    <h1>Aqua-IoT</h1>
+    <input type="email" id="email" placeholder="Email" />
+    <input type="password" id="password" placeholder="Password" />
+    <button onclick="register()">Đăng ký</button>
+    <button onclick="login()">Đăng nhập</button>
+    <button onclick="logout()">Đăng xuất</button>
+  </div>
 
   <script>
-    // Đổi tên biến client thành supabaseClient
     const supabaseClient = supabase.createClient(
       'https://njqsbtgaozxaflbwdgao.supabase.co',
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5qcXNidGdhb3p4YWZsYndkZ2FvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMxNTU1ODksImV4cCI6MjA2ODczMTU4OX0.vB82aJYttyvRALjRJAtnHNa7YYqgkT7ut3ApqHxlQUQ'
@@ -23,16 +73,16 @@
     async function register() {
       const email = document.getElementById('email').value;
       const password = document.getElementById('password').value;
-      const { data, error } = await supabaseClient.auth.signUp({ email, password });
-      if (error) alert('Đăng ký lỗi: ' + error.message);
-      else alert('Đăng ký thành công!');
+      const { error } = await supabaseClient.auth.signUp({ email, password });
+      if (error) alert('Lỗi đăng ký: ' + error.message);
+      else alert('Đăng ký thành công! Vui lòng kiểm tra email xác thực.');
     }
 
     async function login() {
       const email = document.getElementById('email').value;
       const password = document.getElementById('password').value;
-      const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-      if (error) alert('Đăng nhập lỗi: ' + error.message);
+      const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+      if (error) alert('Lỗi đăng nhập: ' + error.message);
       else alert('Đăng nhập thành công!');
     }
 
