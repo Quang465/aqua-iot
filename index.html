@@ -3,8 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Aqua-IoT Login</title>
+  <title>Aqua-IoT Multi-line Realtime</title>
+
+  <!-- Supabase + Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <style>
     body {
       font-family: 'Segoe UI', sans-serif;
@@ -13,83 +17,379 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      height: 100vh;
+      flex-direction: column;
+      min-height: 100vh;
       margin: 0;
+      padding: 20px;
     }
-    .container {
-      background: rgba(255, 255, 255, 0.1);
-      padding: 30px;
+    .card {
+      background: rgba(255,255,255,0.08);
       border-radius: 12px;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+      padding: 18px;
       width: 100%;
-      max-width: 350px;
-      text-align: center;
+      max-width: 900px;
+      box-shadow: 0 6px 30px rgba(0,0,0,0.35);
     }
-    h1 {
-      margin-bottom: 20px;
-      font-weight: 400;
-    }
-    input {
-      width: 100%;
+    input, button {
       padding: 10px;
-      margin: 8px 0;
-      border: none;
+      margin: 6px;
       border-radius: 6px;
-      font-size: 16px;
-    }
-    button {
-      width: 100%;
-      padding: 10px;
-      margin-top: 10px;
-      background-color: #00c9a7;
       border: none;
-      border-radius: 6px;
-      font-size: 16px;
-      color: white;
-      cursor: pointer;
-      transition: 0.3s;
+      font-size: 14px;
     }
-    button:hover {
-      background-color: #00b89c;
-    }
+    input { width: 220px; }
+    .row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    button.primary { background:#00c9a7; color:#fff; cursor:pointer; }
+    button.warn { background:#f97316; color:#fff; cursor:pointer; }
+    canvas { background: #fff; border-radius:8px; margin-top:14px; }
+    .info { color: #e2e8f0; font-size: 13px; margin-top: 8px; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>Aqua-IoT</h1>
-    <input type="email" id="email" placeholder="Email" />
-    <input type="password" id="password" placeholder="Password" />
-    <button onclick="register()">Đăng ký</button>
-    <button onclick="login()">Đăng nhập</button>
-    <button onclick="logout()">Đăng xuất</button>
+  <div class="card">
+    <h2>Aqua-IoT — Multi-line Realtime (10 phút)</h2>
+
+    <!-- Auth -->
+    <div class="row" id="authRow">
+      <input id="email" type="email" placeholder="Email" />
+      <input id="password" type="password" placeholder="Password" />
+      <button class="primary" onclick="login()">Đăng nhập</button>
+      <button onclick="register()">Đăng ký</button>
+      <button onclick="logout()">Đăng xuất</button>
+    </div>
+
+    <!-- Device search -->
+    <div class="row" id="searchRow" style="margin-top:10px; display:none;">
+      <input id="espIdInput" type="text" placeholder="Nhập ESP32 ID (vd: ESP32_001)" />
+      <button class="primary" onclick="loadDeviceData()">Tìm & Hiển thị</button>
+      <button class="warn" onclick="stopRealtime()">Tắt Realtime</button>
+      <div style="flex:1"></div>
+      <div class="info" id="statusInfo">Chưa kết nối.</div>
+    </div>
+
+    <!-- Chart canvas -->
+    <canvas id="multiChart" width="800" height="360"></canvas>
   </div>
 
   <script>
-    const supabaseClient = supabase.createClient(
-      'https://nrxtyqqpxzoyyyfltwqs.supabase.co',
-'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5yeHR5cXFweHpveXl5Zmx0d3FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU0NzkxOTksImV4cCI6MjA3MTA1NTE5OX0.o5UC5nHA0TZd5Z8b3PNjlzY7rqbYCNbJMvjVkO59r3w    );
+    // Supabase config (thay bằng của bạn nếu cần)
+    const SUPA_URL = "https://nrxtyqqpxzoyyyfltwqs.supabase.co";
+    const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5yeHR5cXFweHpveXl5Zmx0d3FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU0NzkxOTksImV4cCI6MjA3MTA1NTE5OX0.o5UC5nHA0TZd5Z8b3PNjlzY7rqbYCNbJMvjVkO59r3w";
 
+    const supabase = supabase.createClient(SUPA_URL, SUPA_KEY);
+
+    // Chart + data containers
+    let chart = null;
+    let espId = null;
+    let subscription = null;
+
+    // Keep timestamps (ms) in parallel to labels for reliable trimming by time window
+    const state = {
+      timestamps: [], // ms
+      labels: [],     // display labels (time strings)
+      temperature: [],
+      ph: [],
+      tds: [],
+      turbidity: []
+    };
+
+    // AUTH helpers
     async function register() {
-      const email = document.getElementById('email').value;
+      const email = document.getElementById('email').value.trim();
       const password = document.getElementById('password').value;
-      const { error } = await supabaseClient.auth.signUp({ email, password });
-      if (error) alert('Lỗi đăng ký: ' + error.message);
-      else alert('Đăng ký thành công! Vui lòng kiểm tra email xác thực.');
+      if (!email || !password) return alert("Nhập email và password.");
+      const { error } = await supabase.auth.signUp({ email, password });
+      if (error) alert("Lỗi đăng ký: " + error.message);
+      else alert("Đăng ký thành công. Kiểm tra email xác thực.");
     }
 
     async function login() {
-      const email = document.getElementById('email').value;
+      const email = document.getElementById('email').value.trim();
       const password = document.getElementById('password').value;
-      const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
-      if (error) alert('Lỗi đăng nhập: ' + error.message);
-      else alert('Đăng nhập thành công!');
+      if (!email || !password) return alert("Nhập email và password.");
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) alert("Lỗi đăng nhập: " + error.message);
+      else {
+        document.getElementById('searchRow').style.display = 'flex';
+        setStatus("Đã đăng nhập.");
+      }
     }
 
     async function logout() {
-      const { error } = await supabaseClient.auth.signOut();
-      if (error) alert('Lỗi đăng xuất: ' + error.message);
-      else alert('Đã đăng xuất!');
+      const { error } = await supabase.auth.signOut();
+      if (error) alert("Lỗi đăng xuất: " + error.message);
+      else {
+        document.getElementById('searchRow').style.display = 'none';
+        setStatus("Đã đăng xuất.");
+        stopRealtime();
+        clearChart();
+      }
     }
+
+    // Set status text
+    function setStatus(text) {
+      document.getElementById('statusInfo').innerText = text;
+    }
+
+    // Load data for espId for last 10 minutes and render chart
+    async function loadDeviceData() {
+      stopRealtime(); // if previously subscribed, remove it first
+
+      espId = document.getElementById('espIdInput').value.trim();
+      if (!espId) return alert("Nhập ESP32 ID.");
+
+      setStatus(`Đang tải dữ liệu cho ${espId}...`);
+
+      // time window: last 10 minutes
+      const since = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+
+      const { data, error } = await supabase
+        .from('sensors_data')
+        .select('created_at, temperature, ph, tds, turbidity')
+        .eq('device_id', espId)
+        .gte('created_at', since)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error(error);
+        setStatus("Lỗi query: " + error.message);
+        return;
+      }
+
+      // reset state
+      state.timestamps = [];
+      state.labels = [];
+      state.temperature = [];
+      state.ph = [];
+      state.tds = [];
+      state.turbidity = [];
+
+      // populate from fetched rows
+      for (const row of data) {
+        const t = new Date(row.created_at).getTime();
+        state.timestamps.push(t);
+        state.labels.push(new Date(row.created_at).toLocaleTimeString());
+        state.temperature.push(validNumber(row.temperature));
+        state.ph.push(validNumber(row.ph));
+        state.tds.push(validNumber(row.tds));
+        state.turbidity.push(validNumber(row.turbidity));
+      }
+
+      renderOrUpdateChart();
+      setStatus(`Hiển thị dữ liệu ${state.timestamps.length} mẫu trong 10 phút gần nhất.`);
+
+      // start realtime subscription
+      startRealtime();
+    }
+
+    // Helper: ensure numeric or null -> convert to null/NaN handling
+    function validNumber(v) {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    // Create or update Chart.js chart with multi datasets
+    function renderOrUpdateChart() {
+      const ctx = document.getElementById('multiChart').getContext('2d');
+
+      // Prepare datasets
+      const datasets = [
+        {
+          label: 'Temperature (°C)',
+          data: state.temperature,
+          borderColor: '#FF3B30',
+          backgroundColor: 'rgba(255,59,48,0.12)',
+          fill: false,
+          tension: 0.25,
+          pointRadius: 2,
+          yAxisID: 'y'
+        },
+        {
+          label: 'pH',
+          data: state.ph,
+          borderColor: '#007AFF',
+          backgroundColor: 'rgba(0,122,255,0.12)',
+          fill: false,
+          tension: 0.25,
+          pointRadius: 2,
+          yAxisID: 'y1'
+        },
+        {
+          label: 'TDS (ppm)',
+          data: state.tds,
+          borderColor: '#34C759',
+          backgroundColor: 'rgba(52,199,89,0.12)',
+          fill: false,
+          tension: 0.25,
+          pointRadius: 2,
+          yAxisID: 'y2'
+        },
+        {
+          label: 'Turbidity (NTU)',
+          data: state.turbidity,
+          borderColor: '#AF52DE',
+          backgroundColor: 'rgba(175,82,222,0.12)',
+          fill: false,
+          tension: 0.25,
+          pointRadius: 2,
+          yAxisID: 'y3'
+        }
+      ];
+
+      if (chart) {
+        // update existing
+        chart.data.labels = state.labels.slice();
+        chart.data.datasets.forEach((ds, idx) => {
+          ds.data = datasets[idx].data.slice();
+        });
+        chart.update();
+      } else {
+        chart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: state.labels.slice(),
+            datasets: datasets
+          },
+          options: {
+            animation: false,
+            maintainAspectRatio: false,
+            scales: {
+              x: {
+                title: { display: true, text: 'Thời gian' }
+              },
+              y: {
+                type: 'linear',
+                display: true,
+                position: 'left',
+                title: { display: true, text: 'Temperature (°C)' }
+              },
+              y1: {
+                type: 'linear',
+                display: true,
+                position: 'right',
+                grid: { drawOnChartArea: false },
+                title: { display: true, text: 'pH' },
+                ticks: { maxTicksLimit: 6 }
+              },
+              y2: {
+                type: 'linear',
+                display: false,
+                position: 'right',
+                grid: { drawOnChartArea: false },
+                title: { display: true, text: 'TDS' }
+              },
+              y3: {
+                type: 'linear',
+                display: false,
+                position: 'right',
+                grid: { drawOnChartArea: false },
+                title: { display: true, text: 'Turbidity' }
+              }
+            },
+            plugins: {
+              legend: { position: 'top' },
+              tooltip: {
+                mode: 'index',
+                intersect: false
+              }
+            },
+            interaction: {
+              mode: 'nearest',
+              axis: 'x',
+              intersect: false
+            }
+          }
+        });
+      }
+    }
+
+    // Start realtime subscription for INSERT on sensors_data for current espId
+    function startRealtime() {
+      if (!espId) return;
+      // remove any existing
+      if (subscription) {
+        supabase.removeChannel(subscription);
+        subscription = null;
+      }
+
+      subscription = supabase
+        .channel('realtime-sensors-' + espId)
+        .on('postgres_changes', {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'sensors_data',
+          filter: `device_id=eq.${espId}`
+        }, payload => {
+          const row = payload.new;
+          addPoint(row);
+        })
+        .subscribe((status) => {
+          // optional callback - status may be 'SUBSCRIBED'
+          if (status === 'SUBSCRIBED') {
+            setStatus(`Realtime subscribed for ${espId}`);
+          }
+        });
+    }
+
+    // Stop realtime and remove channel
+    function stopRealtime() {
+      if (subscription) {
+        supabase.removeChannel(subscription);
+        subscription = null;
+        setStatus('Realtime unsubscribed.');
+      }
+    }
+
+    // Add new row to state + trim to last 10 minutes then update chart
+    function addPoint(row) {
+      try {
+        const t = new Date(row.created_at).getTime();
+        const label = new Date(row.created_at).toLocaleTimeString();
+
+        state.timestamps.push(t);
+        state.labels.push(label);
+        state.temperature.push(validNumber(row.temperature));
+        state.ph.push(validNumber(row.ph));
+        state.tds.push(validNumber(row.tds));
+        state.turbidity.push(validNumber(row.turbidity));
+
+        // Trim older than 10 minutes
+        const windowStart = Date.now() - 10 * 60 * 1000;
+        while (state.timestamps.length > 0 && state.timestamps[0] < windowStart) {
+          state.timestamps.shift();
+          state.labels.shift();
+          state.temperature.shift();
+          state.ph.shift();
+          state.tds.shift();
+          state.turbidity.shift();
+        }
+
+        renderOrUpdateChart();
+        setStatus(`Received new data @ ${label}`);
+      } catch (err) {
+        console.error('addPoint error', err);
+      }
+    }
+
+    // Clear chart and local state
+    function clearChart() {
+      state.timestamps = [];
+      state.labels = [];
+      state.temperature = [];
+      state.ph = [];
+      state.tds = [];
+      state.turbidity = [];
+      if (chart) {
+        chart.destroy();
+        chart = null;
+      }
+    }
+
+    // Optional: auto-clear/refresh every so often
+    // setInterval(() => {
+    //   if (espId) loadDeviceData();
+    // }, 5 * 60 * 1000); // every 5 minutes
+
   </script>
 </body>
 </html>
